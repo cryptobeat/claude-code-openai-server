@@ -24,6 +24,7 @@ alive across the continuations; matching by ``tool_call_id`` needs no hashing.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from collections.abc import AsyncIterator
@@ -33,7 +34,15 @@ from typing import Optional, Union
 
 from app.claude_session import STREAM_CLOSED, ClaudeSession, prompt_session_kwargs as _prompt_kwargs
 from app.config import Settings
-from app.events import AssistantToolUse, Error, TextDelta, TurnDone
+from app.events import (
+    AssistantToolUse,
+    ControlDialog,
+    Error,
+    PermissionRequest,
+    QuestionRequest,
+    TextDelta,
+    TurnDone,
+)
 from app.mcp_bridge import ConversationBridge, McpBridge, PendingCall
 from app.openai_models import ChatCompletionRequest, ChatMessage
 from app.translate import fold_conversation, message_text, split_system, usage_from_turn
@@ -291,7 +300,11 @@ class ConversationManager:
                         # on a fresh blank line instead of gluing it on.
                         yield ToolBoundaryChunk()
                         continue
-                    batch = await conv.bridge.collect_batch(len(hermes))
+                    batch = await self._collect_hermes_batch(conv, len(hermes))
+                    if batch is None:
+                        yield ErrorChunk("upstream timeout", status_code=504)
+                        await self._close(conv)
+                        return
                     if not batch:
                         yield ErrorChunk("expected hermes tool calls did not arrive", status_code=502)
                         await self._close(conv)
@@ -312,6 +325,9 @@ class ConversationManager:
                     yield ErrorChunk(ev.message, status_code=502)
                     await self._close(conv)
                     return
+                elif isinstance(ev, (PermissionRequest, QuestionRequest, ControlDialog)):
+                    await self._handle_control_event(conv, ev)
+                    continue
                 # Init / others: ignore.
         except asyncio.CancelledError:
             # Client disconnected mid-turn (not at a clean suspend point): tear
@@ -319,6 +335,85 @@ class ConversationManager:
             if conv.state != SUSPENDED:
                 await self._close(conv)
             raise
+
+    async def _handle_control_event(
+        self, conv: Conversation, ev: Union[PermissionRequest, QuestionRequest, ControlDialog]
+    ) -> None:
+        """Answer a control_request so the subprocess unblocks.
+
+        Under bypassPermissions the CLI still asks for MCP tools (observed on
+        2.1.206, unlike the built-in-tool path) — auto-allow so the subprocess
+        calls the tool instead of hanging on an answer that never arrives. There
+        is no human on the other end of bypassPermissions, so a question/dialog
+        is cancelled rather than answered.
+        """
+        if isinstance(ev, PermissionRequest):
+            logger.debug("conv=%s auto-allowing permission request for %s", conv.conv_id, ev.tool)
+            await conv.session.send_control_response(
+                ev.request_id, {"behavior": "allow", "updatedInput": ev.input}
+            )
+        elif isinstance(ev, QuestionRequest):
+            await conv.session.send_control_response(
+                ev.request_id, {"behavior": "deny", "message": "no interactive user available"}
+            )
+        else:
+            await conv.session.send_control_response(
+                ev.request_id, {"behavior": ev.cancel_behavior()}
+            )
+
+    async def _collect_hermes_batch(
+        self, conv: Conversation, n: int, *, item_timeout: float = 10.0
+    ) -> Optional[list[PendingCall]]:
+        """Collect the ``n`` hermes calls Claude just announced via ``tool_use``.
+
+        Claude does not actually invoke the MCP tool until it gets a
+        control_response for the ``can_use_tool`` permission check the CLI
+        raises for MCP tools even under bypassPermissions (see
+        ``_handle_control_event``) — so this cannot simply block on the
+        bridge's incoming queue. It races that queue against the session's own
+        event stream so control_requests keep getting answered *while* waiting
+        for the batch, or the two sides deadlock: the turn loop waiting on the
+        bridge, the bridge waiting on a control_response only the turn loop
+        can send. Returns ``None`` on a hard stop (timeout/EOF/error); a
+        shorter-than-``n`` list only if ``item_timeout`` elapses with no new
+        arrival, matching the old ``collect_batch`` contract.
+        """
+        batch: list[PendingCall] = []
+        incoming_task: Optional[asyncio.Task] = None
+        event_task: Optional[asyncio.Task] = None
+        try:
+            while len(batch) < n:
+                if incoming_task is None:
+                    incoming_task = asyncio.ensure_future(conv.bridge.next_incoming())
+                if event_task is None:
+                    event_task = asyncio.ensure_future(conv.session.next_event(timeout=item_timeout))
+                done, _ = await asyncio.wait(
+                    {incoming_task, event_task}, return_when=asyncio.FIRST_COMPLETED
+                )
+                if incoming_task in done:
+                    batch.append(incoming_task.result())
+                    incoming_task = None
+                if event_task in done:
+                    ev = event_task.result()
+                    event_task = None
+                    if ev is None:
+                        logger.warning(
+                            "conv=%s collect_batch timed out at %d/%d", conv.conv_id, len(batch), n
+                        )
+                        break
+                    if ev is STREAM_CLOSED or isinstance(ev, Error):
+                        return None
+                    if isinstance(ev, (PermissionRequest, QuestionRequest, ControlDialog)):
+                        await self._handle_control_event(conv, ev)
+                    # TextDelta / further AssistantToolUse / others: ignore —
+                    # the batch is what we're here for.
+            return batch
+        finally:
+            for t in (incoming_task, event_task):
+                if t is not None and not t.done():
+                    t.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await t
 
     # ── teardown ──────────────────────────────────────────────────────────—
 

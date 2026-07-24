@@ -131,6 +131,13 @@ class ConversationBridge:
                 break
         return batch
 
+    async def next_incoming(self) -> PendingCall:
+        """Await the next dispatched call. Used by the turn loop, which races
+        this against the session's own event stream so it keeps answering
+        control_requests (e.g. the MCP tool permission check) while waiting —
+        Claude will not actually call the tool until that happens."""
+        return await self._incoming.get()
+
     def resolve(self, tool_call_id: str, result: str) -> bool:
         """Deliver a hermes tool result by id. Returns True if a call was waiting."""
         call = self._pending.get(tool_call_id)
