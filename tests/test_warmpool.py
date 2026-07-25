@@ -49,6 +49,9 @@ class FakeClaude:
 def _patch_session(monkeypatch):
     FakeClaude.instances.clear()
     monkeypatch.setattr("app.warmpool.ClaudeSession", FakeClaude)
+    # The pool-miss tests fall through to ConversationManager.create's cold
+    # path, which spawns via its own import — unpatched, that spawns a real CLI.
+    monkeypatch.setattr("app.conversation.ClaudeSession", FakeClaude)
 
 
 def make_settings(**over):
