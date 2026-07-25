@@ -15,13 +15,14 @@ from app.openai_models import ModelCard, ModelList
 router = APIRouter()
 
 # Short aliases first (handy as a client `default_model`), then concrete ids.
+# Concrete ids are limited to current (non-deprecated, non-legacy) models.
 _MODEL_IDS = [
     "opus",
     "sonnet",
     "haiku",
     "fable",
     "claude-opus-4-8",
-    "claude-sonnet-4-6",
+    "claude-sonnet-5",
     "claude-haiku-4-5-20251001",
     "claude-fable-5",
 ]
