@@ -402,7 +402,10 @@ class ConversationManager:
                         )
                         break
                     if ev is STREAM_CLOSED or isinstance(ev, Error):
-                        return None
+                        # Both tasks can land in the same wait round: if the
+                        # batch is already complete, the calls are real and the
+                        # client can still run them — don't throw them away.
+                        return batch if len(batch) >= n else None
                     if isinstance(ev, (PermissionRequest, QuestionRequest, ControlDialog)):
                         await self._handle_control_event(conv, ev)
                     # TextDelta / further AssistantToolUse / others: ignore —

@@ -179,9 +179,17 @@ class ClaudeSession:
                 limit=_READ_LIMIT,
             )
         except FileNotFoundError as e:
-            raise RuntimeError(
-                "claude CLI not found on PATH — install Claude Code and run `claude login`"
-            ) from e
+            # ENOENT here is either the binary or the cwd. CPython puts the one
+            # that actually failed in .filename, so say which instead of always
+            # blaming PATH.
+            missing = e.filename or self.claude_bin
+            hint = (
+                f"workdir {missing} does not exist"
+                if str(missing) == str(self.workdir)
+                else f"claude CLI {missing!r} not found on PATH — "
+                     "install Claude Code and run `claude login`"
+            )
+            raise RuntimeError(f"cannot spawn claude: {hint}") from e
         log_spawn(self.timing_log, self.timing_label, (time.monotonic() - spawn_t0) * 1000)
         self._reader_task = asyncio.create_task(self._read_stdout(), name="claude-stdout")
         self._stderr_task = asyncio.create_task(self._read_stderr(), name="claude-stderr")

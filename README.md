@@ -32,26 +32,31 @@ Under the hood it drives `claude` as a persistent subprocess over its
 ## Requirements
 
 - The `claude` CLI on your `PATH`, already logged in (`claude login`).
-- Python 3.11+.
+- [uv](https://docs.astral.sh/uv/) — `brew install uv`, or
+  `curl -LsSf https://astral.sh/uv/install.sh | sh`.
+- Python 3.11+ — uv downloads one if you don't have it.
 
 ## Install
 
 ```bash
-python3.11 -m venv .venv
-.venv/bin/python -m pip install -e ".[dev]"
+uv sync                # runtime deps, into ./.venv
+uv sync --extra dev    # + pytest & friends, for the test suite
 ```
+
+Nothing else to activate: every command below is `uv run …`, which syncs first
+and runs inside that venv.
 
 ## Run
 
 ```bash
-.venv/bin/python -m uvicorn app.main:app --host 127.0.0.1 --port 8787
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8787
 ```
 
 Or via the installed console script, which pins the fast event loop
 (uvloop + httptools) explicitly:
 
 ```bash
-.venv/bin/claude-code-interface
+uv run claude-code-interface
 ```
 
 Configuration is entirely through `CCI_*` environment variables (or a `.env`
@@ -280,6 +285,8 @@ loginctl enable-linger "$USER"   # so it keeps running after you log out (headle
 
 Notes:
 - The unit reads config from `.env` via `EnvironmentFile`.
+- `ExecStart` points straight at the venv `uv sync` built — no `uv run` on the
+  boot path, so a service start never waits on a dependency resolve.
 - It launches `python -m uvicorn` directly (not the `claude-code-interface`
   console script), and uvicorn already auto-selects uvloop when installed. To pin
   the fast loop deterministically, add `--loop uvloop --http httptools` to
@@ -290,9 +297,9 @@ Notes:
 ## Test
 
 ```bash
-.venv/bin/python -m pytest -q                     # unit tests (no CLI needed)
-.venv/bin/python tests/scripts/e2e_autonomous.py  # live: text, needs a running server
-.venv/bin/python tests/scripts/e2e_tool.py        # live: full tool loop
+uv run pytest -q                        # unit tests (no CLI needed)
+uv run tests/scripts/e2e_autonomous.py  # live: text, needs a running server
+uv run tests/scripts/e2e_tool.py        # live: full tool loop
 ```
 
 ### Benchmark
@@ -303,9 +310,9 @@ with `CCI_TIMING_LOG=1`, and writes p50/p95 of spawn / TTFT / total / throughput
 to JSON:
 
 ```bash
-.venv/bin/python scripts/bench.py --port 8799 --iters 3 --out bench.json
+uv run scripts/bench.py --port 8799 --iters 3 --out bench.json
 # compare warm pool vs cold:
-CCI_WARM_POOL_SIZE=2 .venv/bin/python scripts/bench.py --port 8799 --iters 6
+CCI_WARM_POOL_SIZE=2 uv run scripts/bench.py --port 8799 --iters 6
 ```
 
 It sets `CCI_PORT` (not just `--port`) so the per-conversation MCP callback URL

@@ -10,6 +10,7 @@ response.
 from __future__ import annotations
 
 import asyncio
+import sys
 import types
 
 from app.claude_session import STREAM_CLOSED, ClaudeSession, _READ_LIMIT
@@ -80,3 +81,25 @@ def test_clean_stream_parses_all_lines():
     assert events[-1] is STREAM_CLOSED
     assert {e.session_id for e in events if isinstance(e, Init)} == {"s1", "s2", "s3"}
     # session_id cached from the first init line.
+
+
+def test_spawn_enoent_names_what_is_actually_missing(tmp_path):
+    """ENOENT on spawn is either the binary or the cwd — say which."""
+
+    async def start(bin_: str, workdir) -> str:
+        sess = ClaudeSession(claude_bin=bin_, model="m", workdir=workdir,
+                             permission_mode="bypassPermissions")
+        try:
+            await sess.start()
+        except RuntimeError as e:
+            return str(e)
+        await sess.aclose()
+        return ""
+
+    # Bad binary, good workdir.
+    msg = asyncio.run(start("cci-no-such-binary", tmp_path))
+    assert "not found on PATH" in msg and "cci-no-such-binary" in msg
+    # Good binary, missing workdir — must not blame PATH.
+    missing = tmp_path / "nope"
+    msg = asyncio.run(start(sys.executable, missing))
+    assert str(missing) in msg and "PATH" not in msg
