@@ -3,7 +3,7 @@
 Use **Claude Code** from any OpenAI-compatible client.
 
 A small HTTP server that makes the `claude` CLI look like an OpenAI API (the way
-LM Studio or Ollama do). Point any OpenAI client — hermes, the OpenAI Python SDK,
+LM Studio or Ollama do). Point any OpenAI client — the OpenAI Python SDK,
 Open WebUI, etc. — at it and you get Claude Code, using your existing
 `claude login` (no API key, no per-token billing).
 
@@ -104,7 +104,7 @@ CCI_DEFAULT_WORKDIR=~/cci-workspace
 # CCI_ALLOWED_WORKDIR_ROOTS=["/home/lucas/Projects"]
 
 # ── MCP bridge ───────────────────────────────────────────────────────────────
-# Path the in-process MCP server (hermes' functions) mounts at; the spawned
+# Path the in-process MCP server (your client's functions) mounts at; the spawned
 # claude dials it back over loopback. Rarely needs changing.
 # CCI_MCP_PATH_PREFIX=/mcp
 
@@ -215,17 +215,15 @@ curl http://127.0.0.1:8787/v1/chat/completions \
   -d '{"model":"opus","messages":[{"role":"user","content":"hello"}]}'
 ```
 
-From **hermes**, add a provider in `~/.hermes/config.yaml` and select it:
+From the OpenAI Python SDK:
 
-```yaml
-providers:
-  claude-code:
-    name: Claude Code
-    base_url: http://127.0.0.1:8787/v1
-    api_key: any-string-accepted   # or your CCI_API_KEY if one is set
-    api_mode: chat_completions
-    default_model: opus
-    models: [opus, sonnet, haiku]
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://127.0.0.1:8787/v1", api_key="any-string-accepted")
+print(client.chat.completions.create(
+    model="opus", messages=[{"role": "user", "content": "hello"}]
+).choices[0].message.content)
 ```
 
 Models: `opus`, `sonnet`, `haiku`, `fable`, `opusplan` (or any `claude-*` id).
@@ -318,7 +316,7 @@ the spawned `claude` dials self-matches the throwaway port.
 ```
 OpenAI client ──HTTP /v1──▶ cci-server ──stream-json (stdin/stdout)──▶ claude CLI
        ▲                         │                                         │
-       └──── tool_calls ─────────┤            mcp__hermes__* tool call     │
+       └──── tool_calls ─────────┤            mcp__client__* tool call     │
        │                         │◀──────── in-process MCP bridge ◀────────┘
        └──── tool result ───────▶┘            (/mcp/<conv_id>, loopback)
 ```

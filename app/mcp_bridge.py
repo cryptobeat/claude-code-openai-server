@@ -1,8 +1,8 @@
-"""In-process MCP server that exposes hermes' OpenAI functions to Claude Code.
+"""In-process MCP server that exposes the client's OpenAI functions to Claude Code.
 
 Architecture (validated empirically against CLI 2.1.183):
 
-* A **single** low-level :class:`mcp.server.lowlevel.Server` named ``hermes`` and a
+* A **single** low-level :class:`mcp.server.lowlevel.Server` named ``client`` and a
   **single** :class:`StreamableHTTPSessionManager` serve every conversation. Each
   conversation's ``claude`` subprocess is launched with an ``--mcp-config`` URL of
   ``/<prefix>/<conv_id>``; an ASGI dispatcher reads ``conv_id`` from the path and
@@ -11,11 +11,11 @@ Architecture (validated empirically against CLI 2.1.183):
   copies the current contextvar context into that task — so ``list_tools`` /
   ``call_tool`` running inside it see the right ``conv_id`` with no cross-talk.
 
-* Under ``bypassPermissions`` a ``mcp__hermes__<fn>`` call invokes ``call_tool``
+* Under ``bypassPermissions`` a ``mcp__client__<fn>`` call invokes ``call_tool``
   **directly** — no ``control_request``. The handler mints an OpenAI
   ``tool_call_id``, registers a :class:`PendingCall`, pushes it onto the
   conversation's queue, and **awaits its Future** — blocking the subprocess inside
-  the tool call until hermes returns the result on a later HTTP request.
+  the tool call until client returns the result on a later HTTP request.
 """
 
 from __future__ import annotations
@@ -51,7 +51,7 @@ class ToolResultError(Exception):
 
 @dataclass
 class PendingCall:
-    """One in-flight hermes function call, blocking the subprocess on its Future."""
+    """One in-flight client function call, blocking the subprocess on its Future."""
 
     id: str  # OpenAI tool_call_id ("call_…")
     name: str  # bare function name (e.g. "get_weather")
@@ -139,7 +139,7 @@ class ConversationBridge:
         return await self._incoming.get()
 
     def resolve(self, tool_call_id: str, result: str) -> bool:
-        """Deliver a hermes tool result by id. Returns True if a call was waiting."""
+        """Deliver a client tool result by id. Returns True if a call was waiting."""
         call = self._pending.get(tool_call_id)
         if call is None or call.future.done():
             return False
@@ -162,7 +162,7 @@ class McpBridge:
 
     def __init__(self) -> None:
         self._registry: dict[str, ConversationBridge] = {}
-        self.server: Server = Server("hermes")
+        self.server: Server = Server("client")
         self._install_handlers()
         self.session_manager = StreamableHTTPSessionManager(
             app=self.server, json_response=False, stateless=False

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """M6 E2E: the full OpenAI tool loop (suspend/resume) against a running server.
 
-Simulates what hermes does:
+Simulates what client does:
   1. POST with tools=[get_weather] + a prompt that needs it
      -> expect finish_reason "tool_calls" + a tool_call for get_weather(Paris)
   2. POST the same history + assistant(tool_calls) + tool(result)

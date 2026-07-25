@@ -17,7 +17,7 @@ Request classification:
   conversation's MCP URL, and the (system-stripped) history is folded into one
   user turn.
 
-The whole multi-step tool loop for one hermes turn is a single conversation kept
+The whole multi-step tool loop for one client turn is a single conversation kept
 alive across the continuations; matching by ``tool_call_id`` needs no hashing.
 """
 
@@ -201,7 +201,7 @@ class ConversationManager:
 
         mcp_config = {
             "mcpServers": {
-                "hermes": {"type": "http", "url": self._mcp_url(conv_id)}
+                "client": {"type": "http", "url": self._mcp_url(conv_id)}
             }
         }
         session = ClaudeSession(
@@ -291,8 +291,8 @@ class ConversationManager:
                 if isinstance(ev, TextDelta):
                     yield TextChunk(ev.text)
                 elif isinstance(ev, AssistantToolUse):
-                    hermes = ev.hermes_calls
-                    if not hermes:
+                    client = ev.client_calls
+                    if not client:
                         logger.debug("conv=%s internal tools: %s", conv.conv_id,
                                      [b.name for b in ev.builtin_calls])
                         # Built-in tool ran internally; surface a seam marker so
@@ -300,13 +300,13 @@ class ConversationManager:
                         # on a fresh blank line instead of gluing it on.
                         yield ToolBoundaryChunk()
                         continue
-                    batch = await self._collect_hermes_batch(conv, len(hermes))
+                    batch = await self._collect_client_batch(conv, len(client))
                     if batch is None:
                         yield ErrorChunk("upstream timeout", status_code=504)
                         await self._close(conv)
                         return
                     if not batch:
-                        yield ErrorChunk("expected hermes tool calls did not arrive", status_code=502)
+                        yield ErrorChunk("expected client tool calls did not arrive", status_code=502)
                         await self._close(conv)
                         return
                     async with self._lock:
@@ -361,10 +361,10 @@ class ConversationManager:
                 ev.request_id, {"behavior": ev.cancel_behavior()}
             )
 
-    async def _collect_hermes_batch(
+    async def _collect_client_batch(
         self, conv: Conversation, n: int, *, item_timeout: float = 10.0
     ) -> Optional[list[PendingCall]]:
-        """Collect the ``n`` hermes calls Claude just announced via ``tool_use``.
+        """Collect the ``n`` client calls Claude just announced via ``tool_use``.
 
         Claude does not actually invoke the MCP tool until it gets a
         control_response for the ``can_use_tool`` permission check the CLI
@@ -442,7 +442,7 @@ class ConversationManager:
     async def gc_once(self) -> int:
         """Reap conversations whose TTL elapsed. Returns the count closed.
 
-        A SUSPENDED conversation (a hermes turn that never returned its tool
+        A SUSPENDED conversation (a client turn that never returned its tool
         results) past ``suspended_ttl_s`` is killed; failing its pending Futures
         unblocks the subprocess before teardown. Any conversation idle past
         ``idle_session_ttl_s`` is also evicted.

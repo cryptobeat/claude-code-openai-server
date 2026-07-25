@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "claude-code-interface"
 version = "0.1.0"
-description = "OpenAI-compatible HTTP server wrapping the Claude Code CLI (stream-json), for use as a local provider from hermes and other OpenAI clients."
+description = "OpenAI-compatible HTTP server wrapping the Claude Code CLI (stream-json), for use as a local provider from any OpenAI-compatible client."
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",

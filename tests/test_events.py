@@ -3,7 +3,7 @@
 Ported from wisp's src/claude/event.rs test vectors (the exact line shapes
 captured from a live `claude --output-format stream-json --verbose
 --include-partial-messages` run), adapted to our event types, plus vectors for
-`mcp__hermes__*` tool calls and the usage-bearing `result` line captured live
+`mcp__client__*` tool calls and the usage-bearing `result` line captured live
 from CLI 2.1.183.
 """
 
@@ -33,11 +33,11 @@ STREAM_TOOL_START = '{"type":"stream_event","event":{"type":"content_block_start
 ASSISTANT_THINKING = '{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm","signature":"x"}]}}'
 ASSISTANT_TEXT = '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Hi there."}]}}'
 
-# hermes function calls surface as mcp__hermes__<fn> tool_use blocks.
-ASSISTANT_HERMES = '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_h1","name":"mcp__hermes__get_weather","input":{"city":"Paris"}}]}}'
-ASSISTANT_HERMES_PARALLEL = '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_h1","name":"mcp__hermes__get_weather","input":{"city":"Paris"}},{"type":"tool_use","id":"toolu_h2","name":"mcp__hermes__get_time","input":{"tz":"UTC"}}]}}'
-# A mixed step: a builtin Read AND a hermes call in one assistant message.
-ASSISTANT_MIXED = '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_r","name":"Read","input":{"file_path":"/tmp/x"}},{"type":"tool_use","id":"toolu_h","name":"mcp__hermes__lookup","input":{"q":"a"}}]}}'
+# client function calls surface as mcp__client__<fn> tool_use blocks.
+ASSISTANT_CLIENT = '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_h1","name":"mcp__client__get_weather","input":{"city":"Paris"}}]}}'
+ASSISTANT_CLIENT_PARALLEL = '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_h1","name":"mcp__client__get_weather","input":{"city":"Paris"}},{"type":"tool_use","id":"toolu_h2","name":"mcp__client__get_time","input":{"tz":"UTC"}}]}}'
+# A mixed step: a builtin Read AND a client call in one assistant message.
+ASSISTANT_MIXED = '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_r","name":"Read","input":{"file_path":"/tmp/x"}},{"type":"tool_use","id":"toolu_h","name":"mcp__client__lookup","input":{"q":"a"}}]}}'
 
 # Captured live from CLI 2.1.183.
 RESULT_USAGE = '{"type":"result","subtype":"success","is_error":false,"result":"PONG","stop_reason":"end_turn","session_id":"f360e668","total_cost_usd":0.0557505,"usage":{"input_tokens":3,"cache_creation_input_tokens":8428,"cache_read_input_tokens":16945,"output_tokens":6}}'
@@ -86,8 +86,8 @@ def test_assistant_read_tool_use():
     b = ev.tool_uses[0]
     assert b.name == "Read"
     assert b.input["file_path"] == "/Users/lucas/Projects/wisp/note.txt"
-    assert not b.is_hermes
-    assert ev.hermes_calls == []
+    assert not b.is_client
+    assert ev.client_calls == []
     assert len(ev.builtin_calls) == 1
 
 
@@ -98,32 +98,32 @@ def test_assistant_bash_tool_use():
     assert ev.tool_uses[0].input["command"] == "find /tmp -iname 'note*.txt'"
 
 
-def test_hermes_tool_use_split_and_name():
-    ev = parse_line(ASSISTANT_HERMES)
+def test_client_tool_use_split_and_name():
+    ev = parse_line(ASSISTANT_CLIENT)
     assert isinstance(ev, AssistantToolUse)
     b = ev.tool_uses[0]
-    assert b.is_hermes
-    assert b.hermes_function_name == "get_weather"
+    assert b.is_client
+    assert b.client_function_name == "get_weather"
     assert b.input == {"city": "Paris"}
-    assert len(ev.hermes_calls) == 1
+    assert len(ev.client_calls) == 1
     assert ev.builtin_calls == []
 
 
-def test_hermes_parallel_calls_batch_size():
-    ev = parse_line(ASSISTANT_HERMES_PARALLEL)
+def test_client_parallel_calls_batch_size():
+    ev = parse_line(ASSISTANT_CLIENT_PARALLEL)
     assert isinstance(ev, AssistantToolUse)
-    assert len(ev.hermes_calls) == 2
-    assert [b.hermes_function_name for b in ev.hermes_calls] == ["get_weather", "get_time"]
+    assert len(ev.client_calls) == 2
+    assert [b.client_function_name for b in ev.client_calls] == ["get_weather", "get_time"]
 
 
-def test_mixed_step_splits_builtin_and_hermes():
+def test_mixed_step_splits_builtin_and_client():
     ev = parse_line(ASSISTANT_MIXED)
     assert isinstance(ev, AssistantToolUse)
     assert len(ev.tool_uses) == 2
-    assert len(ev.hermes_calls) == 1
+    assert len(ev.client_calls) == 1
     assert len(ev.builtin_calls) == 1
     assert ev.builtin_calls[0].name == "Read"
-    assert ev.hermes_calls[0].hermes_function_name == "lookup"
+    assert ev.client_calls[0].client_function_name == "lookup"
 
 
 def test_streamed_start_and_text_only_emit_nothing():

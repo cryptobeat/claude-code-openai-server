@@ -211,7 +211,7 @@ async def test_suspend_resume_roundtrip():
     from app.events import AssistantToolUse, ToolUseBlock
 
     tool_use_ev = AssistantToolUse(tool_uses=[
-        ToolUseBlock(id="toolu_1", name="mcp__hermes__get_weather", input={"city": "Paris"})])
+        ToolUseBlock(id="toolu_1", name="mcp__client__get_weather", input={"city": "Paris"})])
     sess = FakeSession([tool_use_ev])  # then STREAM_CLOSED-> but we suspend first
     conv = Conversation(conv_id="c1", session=sess, bridge=bridge, model="sonnet")
     mgr._conversations["c1"] = conv

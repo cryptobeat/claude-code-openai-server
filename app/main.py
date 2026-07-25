@@ -3,7 +3,7 @@
 The app exposes an OpenAI-compatible surface (``/v1/models``,
 ``/v1/chat/completions``) backed by the Claude Code CLI, and mounts the in-process
 MCP bridge at ``settings.mcp_path_prefix`` (default ``/mcp``) so Claude can reach
-hermes' functions. The lifespan hook owns process-wide singletons: the MCP
+the client's functions. The lifespan hook owns process-wide singletons: the MCP
 session manager's task group and the :class:`ConversationManager`.
 """
 

@@ -7,7 +7,7 @@ Two streaming-safe transforms, combined in :class:`OutputFilter`:
    newline. When a built-in tool (Read/Edit/Bash/…) runs between two text blocks
    the bridge surfaces nothing for the gap, so the blocks arrive glued::
 
-       "...only works for one-off CLI runs.Found it — ~/.hermes/SOUL.md is ..."
+       "...only works for one-off CLI runs.Found it — ~/.config/app/NOTES.md is ..."
 
    Newlines appear to "randomly" disappear because the loss happens *only* at
    these tool-call boundaries. The joiner guarantees one blank line at the seam.
