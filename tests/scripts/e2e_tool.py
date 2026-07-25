@@ -9,7 +9,7 @@ Simulates what client does:
 
 Runs the loop in both non-streaming and streaming modes.
 
-Usage: .venv/bin/python tests/scripts/e2e_tool.py [base_url]
+Usage: uv run tests/scripts/e2e_tool.py [base_url]
 """
 import json
 import sys

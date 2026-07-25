@@ -18,7 +18,7 @@ Scenarios (each repeated ``--iters`` times):
   * continuation— returns the tool result so the same conversation resumes
 
 Usage:
-  .venv/bin/python scripts/bench.py [--port 8799] [--iters 3] [--out bench-baseline.json]
+  uv run scripts/bench.py [--port 8799] [--iters 3] [--out bench-baseline.json]
                                     [--loop uvloop --http httptools] [--model opus]
 """
 from __future__ import annotations

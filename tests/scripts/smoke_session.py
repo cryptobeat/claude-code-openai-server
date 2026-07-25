@@ -2,7 +2,7 @@
 """M3 smoke test: drive a real `claude` subprocess for two turns via ClaudeSession.
 
 Hits the live CLI (model sonnet, bypassPermissions). Run:
-    .venv/bin/python tests/scripts/smoke_session.py
+    uv run tests/scripts/smoke_session.py
 """
 import asyncio
 import sys

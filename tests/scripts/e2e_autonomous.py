@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """M4 E2E: hit a running server's /v1/chat/completions in both modes (no tools).
 
-Usage: .venv/bin/python tests/scripts/e2e_autonomous.py [base_url]
+Usage: uv run tests/scripts/e2e_autonomous.py [base_url]
 Defaults to http://127.0.0.1:8787 .
 """
 import json
