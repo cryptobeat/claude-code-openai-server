@@ -7,12 +7,12 @@ StreamableHTTPSessionManager, then launches `claude` pointed at it under
 bypassPermissions and asks it to use the tool.
 
 Confirms:
-  #2  the mcp__hermes__get_weather call reaches our handler with NO control_request
+  #2  the mcp__client__get_weather call reaches our handler with NO control_request
   #3  --mcp-config type:"http" inline string parses; whether --allowed-tools needed
   #6  /mcp/<conv_id> routing through one mounted manager works
 
 Env knobs:
-  PROBE_ALLOWED=1   pass --allowed-tools "mcp__hermes__*" (default 0 = omit)
+  PROBE_ALLOWED=1   pass --allowed-tools "mcp__client__*" (default 0 = omit)
   PROBE_PORT=8799
 """
 import asyncio
@@ -49,7 +49,7 @@ HANDLER_CALLS: list[tuple[str, dict]] = []
 current_conv_id: ContextVar[str] = ContextVar("current_conv_id", default="")
 
 # ── MCP server ───────────────────────────────────────────────────────────────
-server: Server = Server("hermes")
+server: Server = Server("client")
 
 
 @server.list_tools()
@@ -118,7 +118,7 @@ def build_app() -> Starlette:
 async def drive_claude() -> bool:
     mcp_config = {
         "mcpServers": {
-            "hermes": {"type": "http", "url": f"http://127.0.0.1:{PORT}/mcp/{CONV_ID}"}
+            "client": {"type": "http", "url": f"http://127.0.0.1:{PORT}/mcp/{CONV_ID}"}
         }
     }
     sess = ClaudeSession(
@@ -127,7 +127,7 @@ async def drive_claude() -> bool:
         permission_mode="bypassPermissions",
         workdir="/tmp/cci_probe_ws",
         mcp_config=mcp_config,
-        allowed_tools=["mcp__hermes__get_weather", "mcp__hermes"] if ALLOWED else None,
+        allowed_tools=["mcp__client__get_weather", "mcp__client"] if ALLOWED else None,
         enable_tool_search=False,
     )
     print(f"[probe] allowed_tools_passed={ALLOWED}", flush=True)
@@ -135,7 +135,7 @@ async def drive_claude() -> bool:
     await sess.send_user_turn(
         "Use the get_weather tool to get the weather for Paris, then tell me the result in one sentence."
     )
-    saw_hermes_tooluse = False
+    saw_client_tooluse = False
     saw_control = False
     final_text = ""
     while True:
@@ -153,8 +153,8 @@ async def drive_claude() -> bool:
         elif isinstance(ev, AssistantToolUse):
             names = [b.name for b in ev.tool_uses]
             print(f"[claude] tool_use: {names}", flush=True)
-            if any(b.is_hermes for b in ev.tool_uses):
-                saw_hermes_tooluse = True
+            if any(b.is_client for b in ev.tool_uses):
+                saw_client_tooluse = True
         elif isinstance(ev, (PermissionRequest, ControlDialog)):
             saw_control = True
             print(f"[claude] *** CONTROL REQUEST: {ev} ***", flush=True)
@@ -168,7 +168,7 @@ async def drive_claude() -> bool:
 
     print("\n========== PROBE RESULTS ==========", flush=True)
     print(f"handler invoked:        {len(HANDLER_CALLS)} time(s) -> {HANDLER_CALLS}", flush=True)
-    print(f"assistant hermes call:  {saw_hermes_tooluse}", flush=True)
+    print(f"assistant client call:  {saw_client_tooluse}", flush=True)
     print(f"control_request seen:   {saw_control}  (expect False under bypass)", flush=True)
     print(f"final text:             {final_text!r}", flush=True)
     ok = len(HANDLER_CALLS) >= 1 and not saw_control and "21" in final_text

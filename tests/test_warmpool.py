@@ -114,7 +114,7 @@ async def test_signature_mismatch_misses_and_retargets():
     pool = WarmPool(mcp, make_settings(), 2)
     await pool.start()  # entries carry the default signature (system=None)
     other = Signature(model="claude-opus-4-8", effort=None,
-                      workdir=str(make_settings().default_workdir), system="hermes prompt")
+                      workdir=str(make_settings().default_workdir), system="client prompt")
     miss = await pool.acquire(other)
     assert miss is None  # no entry matches the new signature → cold spawn
     # refill re-targets: pool eventually holds only `other`-signature entries.

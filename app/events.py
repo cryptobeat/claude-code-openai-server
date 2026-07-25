@@ -10,7 +10,7 @@ Differences from the wisp original (intentional, for the OpenAI bridge):
 
 * ``assistant`` lines yield :class:`AssistantToolUse` carrying the **full list**
   of ``tool_use`` blocks (id/name/input), not a single one-line summary. The
-  bridge must split hermes' functions (``mcp__hermes__*``) from Claude's own
+  bridge must split the client's functions (``mcp__client__*``) from Claude's own
   built-in tools and know the batch size, so it needs every block.
 * :class:`TurnDone` carries ``usage`` / ``total_cost_usd`` / ``stop_reason`` /
   ``result`` text from the ``result`` line, for OpenAI ``usage`` + ``finish_reason``.
@@ -25,10 +25,10 @@ import json
 from dataclasses import dataclass, field
 from typing import Any, Optional, Union
 
-# hermes' external functions are exposed to Claude under this MCP tool-name
-# prefix (server name "hermes"). Everything else in a tool_use block is a
+# The client's external functions are exposed to Claude under this MCP tool-name
+# prefix (server name "client"). Everything else in a tool_use block is a
 # Claude Code built-in (Read/Edit/Bash/…) that runs internally.
-HERMES_TOOL_PREFIX = "mcp__hermes__"
+CLIENT_TOOL_PREFIX = "mcp__client__"
 
 
 # ── Event types ─────────────────────────────────────────────────────────────
@@ -43,14 +43,14 @@ class ToolUseBlock:
     input: dict[str, Any]
 
     @property
-    def is_hermes(self) -> bool:
-        return self.name.startswith(HERMES_TOOL_PREFIX)
+    def is_client(self) -> bool:
+        return self.name.startswith(CLIENT_TOOL_PREFIX)
 
     @property
-    def hermes_function_name(self) -> str:
-        """The bare OpenAI function name (``mcp__hermes__get_weather`` → ``get_weather``)."""
-        if self.is_hermes:
-            return self.name[len(HERMES_TOOL_PREFIX):]
+    def client_function_name(self) -> str:
+        """The bare OpenAI function name (``mcp__client__get_weather`` → ``get_weather``)."""
+        if self.is_client:
+            return self.name[len(CLIENT_TOOL_PREFIX):]
         return self.name
 
 
@@ -72,12 +72,12 @@ class AssistantToolUse:
     tool_uses: list[ToolUseBlock]
 
     @property
-    def hermes_calls(self) -> list[ToolUseBlock]:
-        return [b for b in self.tool_uses if b.is_hermes]
+    def client_calls(self) -> list[ToolUseBlock]:
+        return [b for b in self.tool_uses if b.is_client]
 
     @property
     def builtin_calls(self) -> list[ToolUseBlock]:
-        return [b for b in self.tool_uses if not b.is_hermes]
+        return [b for b in self.tool_uses if not b.is_client]
 
 
 @dataclass(frozen=True)

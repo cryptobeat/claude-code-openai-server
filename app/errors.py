@@ -1,6 +1,6 @@
 """OpenAI-shaped error envelopes.
 
-OpenAI clients (including the OpenAI Python SDK that hermes uses) expect errors
+OpenAI clients (including the OpenAI Python SDK) expect errors
 in the shape ``{"error": {"message", "type", "param", "code"}}``. We mirror that
 both for non-streaming JSON responses and for mid-stream SSE error chunks.
 """

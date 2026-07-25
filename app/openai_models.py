@@ -1,6 +1,6 @@
 """Pydantic models for the subset of the OpenAI Chat Completions API we serve.
 
-Requests tolerate unknown fields (``extra="ignore"``) so clients like hermes can
+Requests tolerate unknown fields (``extra="ignore"``) so clients can
 send ``temperature``/``top_p``/``seed`` etc. without breaking us; we simply don't
 act on the ones the CLI has no equivalent for. Two non-standard, optional fields
 are recognised: ``workdir`` (per-request workspace override) and ``effort``

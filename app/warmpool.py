@@ -58,7 +58,7 @@ def tools_signature(tools: Optional[list[ToolDef]]) -> str:
     the request will use; late-binding an empty bridge yields a proc that thinks
     it has no tools. The tool set therefore becomes part of the pool signature:
     only a request whose tools match the pooled proc's baked-in schemas may adopt
-    it; anything else cold-spawns. (Hermes' tool set is near-constant within a
+    it; anything else cold-spawns. (Client' tool set is near-constant within a
     session, so steady-state hit rate stays high.)
     """
     if not tools:
@@ -161,7 +161,7 @@ class WarmPool:
         bridge = ConversationBridge(conv_id, list(tools))
         self.mcp.register(bridge)
         mcp_config = {
-            "mcpServers": {"hermes": {"type": "http", "url": self._mcp_url(conv_id)}}
+            "mcpServers": {"client": {"type": "http", "url": self._mcp_url(conv_id)}}
         }
         session = ClaudeSession(
             claude_bin=self.settings.claude_bin,
