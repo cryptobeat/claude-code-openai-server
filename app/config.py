@@ -84,6 +84,17 @@ class Settings(BaseSettings):
     # ── MCP bridge ─────────────────────────────────────────────────────────—
     mcp_path_prefix: str = "/mcp"
 
+    # ── Cross-turn session reuse ───────────────────────────────────────────—
+    # When true, a completed conversation is parked (subprocess kept alive)
+    # keyed by a hash of its full history; a later request whose prior turns match
+    # that history reuses the live subprocess and sends only the new user message,
+    # instead of spawning a fresh proc and refolding the whole conversation into
+    # one prompt every turn. Cuts the per-turn history re-billing and preserves
+    # structured tool history. Ships OFF: a positive key match always implies an
+    # identical prefix, and any miss falls back to the refold path, so enabling it
+    # cannot corrupt a conversation — it only trades idle RAM for token savings.
+    cross_turn_reuse: bool = False
+
     # ── Lifecycle / timeouts (seconds) ─────────────────────────────────────—
     request_timeout_s: int = 600
     suspended_ttl_s: int = 300
