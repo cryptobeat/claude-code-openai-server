@@ -27,6 +27,7 @@ import asyncio
 import contextlib
 import logging
 import time
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -150,8 +151,13 @@ class ConversationManager:
     # ── creation (fresh turn) ─────────────────────────────────────────────—
 
     def _next_conv_id(self) -> str:
+        # The counter keeps ids readable in logs; the uuid4 suffix makes them
+        # unguessable. A predictable id (e.g. counter + unix timestamp) is
+        # enumerable, and the /mcp mount routes purely on it — so an id that can
+        # be guessed is an access-control gap. See also the loopback-peer gate in
+        # McpBridge.asgi_app; this is defense in depth behind it.
         self._counter += 1
-        return f"conv{self._counter}-{int(time.time())}"
+        return f"conv{self._counter}-{uuid.uuid4().hex}"
 
     def _mcp_url(self, conv_id: str) -> str:
         prefix = self.settings.mcp_path_prefix.rstrip("/")
