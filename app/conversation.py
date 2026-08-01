@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import hashlib
+import json
 import logging
 import time
 import uuid
@@ -191,7 +192,11 @@ class ConversationManager:
         for m in msgs:
             if m.role not in ("user", "tool"):
                 continue
-            txt = message_text(m) or ""
+            # Serialize list content (content parts) whole, not via message_text:
+            # message_text drops non-text parts, so two histories differing only
+            # in an attached image would otherwise collide on the same key.
+            c = m.content
+            txt = json.dumps(c, sort_keys=True) if isinstance(c, list) else (c or "")
             tid = getattr(m, "tool_call_id", "") or ""
             parts.append(f"{m.role}\x1f{txt}\x1f{tid}")
         return "\x1e".join(parts)
@@ -551,7 +556,10 @@ class ConversationManager:
         async with self._lock:
             self._conversations.pop(conv.conv_id, None)
             if conv.reuse_key:
-                self._idle_by_prefix.pop(conv.reuse_key, None)
+                # Pop only our own index entry: a later conv parked under the
+                # same key overwrites it, and closing us must not strand that one.
+                if self._idle_by_prefix.get(conv.reuse_key) == conv.conv_id:
+                    self._idle_by_prefix.pop(conv.reuse_key)
                 conv.reuse_key = None
             for tid in conv.bridge.pending_ids:
                 self._pending_index.pop(tid, None)
