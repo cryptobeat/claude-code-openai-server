@@ -492,3 +492,37 @@ async def test_idle_conv_reaped_by_gc():
     assert conv.state == CLOSED
     assert sess.closed is True
     assert mgr._idle_by_prefix == {}      # idle index cleaned on close
+
+
+def test_reuse_key_distinguishes_image_content():
+    """Histories differing only in an attached image must not share a reuse key
+    (message_text drops image parts; the key serialization must not)."""
+    mgr = ConversationManager(McpBridge(), make_settings(cross_turn_reuse=True))
+    def msgs(img_data):
+        return [ChatMessage(role="user", content=[
+            {"type": "text", "text": "describe this"},
+            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_data}"}},
+        ])]
+    assert mgr._prefix_key("s", msgs("AAAA")) != mgr._prefix_key("s", msgs("BBBB"))
+    assert mgr._prefix_key("s", msgs("AAAA")) == mgr._prefix_key("s", msgs("AAAA"))
+
+
+async def test_close_does_not_strand_other_conv_with_same_reuse_key():
+    """conv2 parked under the same key overwrites conv1's index entry; closing
+    conv1 must leave conv2's entry (and reusability) intact."""
+    mcp = McpBridge()
+    mgr = ConversationManager(mcp, make_settings(cross_turn_reuse=True))
+    convs = {}
+    for cid in ("c1", "c2"):
+        bridge = ConversationBridge(cid, [])
+        mcp.register(bridge)
+        conv = Conversation(conv_id=cid, session=FakeSession([]), bridge=bridge,
+                            model="sonnet", state=IDLE)
+        conv.reuse_key = "k1"
+        mgr._conversations[cid] = conv
+        convs[cid] = conv
+    mgr._idle_by_prefix["k1"] = "c2"  # c2 parked later, overwrote c1's entry
+    await mgr._close(convs["c1"])
+    assert mgr._idle_by_prefix == {"k1": "c2"}
+    await mgr._close(convs["c2"])
+    assert mgr._idle_by_prefix == {}
