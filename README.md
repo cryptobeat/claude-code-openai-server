@@ -21,6 +21,9 @@ Under the hood it drives `claude` as a persistent subprocess over its
   conversation kept alive across continuations.
 - **Claude's own built-in tools** (Read/Edit/Bash/…) run internally the whole
   time (unless bare mode strips them — see below).
+- **Images:** base64 `image_url` parts become native Claude image blocks — on the
+  live turn and in folded history alike, so a picture stays visible for the
+  follow-up turns that ask about it.
 - **Bare model mode** (default on): presents Claude as a plain model fronted by
   your client — replaces the system prompt, drops Claude Code's dynamic context,
   and exposes only the tools your client sends.
