@@ -376,6 +376,45 @@ class ConversationManager:
         logger.info("conv=%s resumed (%d/%d tool results)", conv.conv_id, resolved, len(tool_msgs))
         return conv
 
+    # ── resume-or-rebuild (expired-continuation recovery) ─────────────────—
+
+    async def resume_or_rebuild(
+        self,
+        req: ChatCompletionRequest,
+        *,
+        model: str,
+        workdir: Path,
+        effort: Optional[str],
+    ) -> Conversation:
+        """Resume a suspended conversation, or rebuild it from full history.
+
+        The happy path is :meth:`resume`: match the trailing tool results to the
+        live suspended subprocess and hand them over. If that subprocess is gone
+        (GC'd past ``suspended_ttl_s``, or wiped by a restart), ``resume`` raises
+        :class:`ExpiredContinuation`, which the route renders as HTTP 409. That
+        409 is unretryable by construction — the session it refers to no longer
+        exists — so the client either loses the turn or fails it over to another
+        model, even though nothing is actually wrong with the request.
+
+        Since OpenAI clients are stateless, the continuation carries the entire
+        transcript, so we can just start over: :meth:`create` folds the whole
+        thing (the user turn, the assistant turn with tool_calls, and the tool
+        results) into one fresh turn and Claude produces the next turn — final
+        text or new tool calls — exactly as it would have. Gated by
+        ``settings.rebuild_on_expiry`` so the legacy 409 can be restored.
+        """
+        try:
+            return await self.resume(req)
+        except ExpiredContinuation:
+            if not self.settings.rebuild_on_expiry:
+                raise
+            logger.info(
+                "continuation expired; rebuilding a fresh %s session from full "
+                "history (%d messages) instead of 409",
+                model, len(req.messages),
+            )
+            return await self.create(req, model=model, workdir=workdir, effort=effort)
+
     # ── turn loop ─────────────────────────────────────────────────────────—
 
     async def run_turn(self, conv: Conversation) -> AsyncIterator[TurnChunk]:
