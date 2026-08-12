@@ -121,6 +121,14 @@ class ExpiredContinuation(Exception):
     """A continuation whose tool_call_ids match no suspended conversation."""
 
 
+class DuplicateContinuation(ExpiredContinuation):
+    """A continuation whose conversation is alive but is not waiting on these
+    tool results — a second copy of a turn already claimed. Distinct from a
+    plain expiry because it must never be rebuilt: the first copy is (or was)
+    answering it, and a rebuild would re-run the whole turn, side effects and
+    all, on a second subprocess. Still renders as 409, as it always did."""
+
+
 class ConversationManager:
     def __init__(self, mcp: McpBridge, settings: Settings) -> None:
         self.mcp = mcp
@@ -339,9 +347,17 @@ class ConversationManager:
         async with self._lock:
             conv_id = next((self._pending_index[i] for i in ids if i in self._pending_index), None)
             conv = self._conversations.get(conv_id) if conv_id else None
-            if conv is None or conv.state != SUSPENDED:
+            if conv is None:
                 raise ExpiredContinuation(
                     "tool results reference an expired or unknown conversation; retry the turn"
+                )
+            # The ids are known but this conversation is not blocked on them:
+            # another copy of this same continuation already claimed the turn
+            # (or the conversation has since suspended on a later batch). That
+            # is what the claim is for — reject, and never rebuild it.
+            if conv.state != SUSPENDED or not set(ids) & set(conv.bridge.pending_ids):
+                raise DuplicateContinuation(
+                    "these tool results were already claimed; the turn is already running"
                 )
             conv.state = RUNNING
             conv.touch()
@@ -350,8 +366,10 @@ class ConversationManager:
             # later cross-turn reuse keys off what the subprocess has actually
             # processed by the time this turn ends.
             conv.current_msgs = list(req.messages)
-            for tid in ids:
-                self._pending_index.pop(tid, None)
+            # The claimed ids stay in the index (``_close`` sweeps them) so a
+            # duplicate copy of this continuation still resolves to this
+            # conversation and is recognised as a duplicate, rather than looking
+            # like an expired session and being rebuilt.
 
         # Deliver results to the per-call Futures (outside the lock).
         outstanding = set(conv.bridge.pending_ids)
@@ -405,6 +423,10 @@ class ConversationManager:
         """
         try:
             return await self.resume(req)
+        except DuplicateContinuation:
+            # A live conversation already owns this turn: rebuilding would run
+            # it a second time. Always the legacy 409.
+            raise
         except ExpiredContinuation:
             if not self.settings.rebuild_on_expiry:
                 raise

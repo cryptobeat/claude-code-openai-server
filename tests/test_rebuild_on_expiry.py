@@ -151,6 +151,30 @@ async def test_resume_or_rebuild_raises_when_flag_off(monkeypatch):
         await mgr.resume_or_rebuild(req, model="sonnet", workdir=Path("/tmp"), effort=None)
 
 
+async def test_duplicate_continuation_is_never_rebuilt(monkeypatch):
+    """A live conversation that already owns this turn must NOT be rebuilt: the
+    resume claim exists to stop a second copy of a continuation double-running
+    the turn, and Claude's built-in tools have real side effects. Flag on."""
+    import app.conversation as conv_mod
+    from app.conversation import Conversation, DuplicateContinuation, RUNNING
+    from app.mcp_bridge import ConversationBridge
+
+    _FakeSession.last_content = None
+    monkeypatch.setattr(conv_mod, "ClaudeSession", _FakeSession)
+    mgr = ConversationManager(McpBridge(), _make_settings(rebuild_on_expiry=True))
+    # A conversation already driving the turn these tool results belong to.
+    conv = Conversation(conv_id="c1", session=_FakeSession(), bridge=ConversationBridge("c1", []),
+                        model="sonnet", state=RUNNING)
+    mgr._conversations["c1"] = conv
+    mgr._pending_index["call_ghost_1"] = "c1"
+
+    with pytest.raises(DuplicateContinuation):
+        await mgr.resume_or_rebuild(
+            _expired_continuation_req(), model="sonnet", workdir=Path("/tmp"), effort=None
+        )
+    assert _FakeSession.last_content is None, "duplicate continuation must not spawn a rebuild"
+
+
 # ── integration: full route (200 rebuild vs 409 legacy) ────────────────────—
 
 
