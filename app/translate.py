@@ -240,10 +240,13 @@ def fold_conversation(convo: list[ChatMessage]) -> str | list[dict[str, Any]]:
             return [{"type": "text", "text": preamble}, *last_content]
         return preamble + message_text(last)
 
-    # History carried images, so the whole fold travels as blocks.
+    # History carried images, so the whole fold travels as blocks. An empty live
+    # turn contributes no block: the API rejects an empty text block, and on the
+    # string path it appended nothing anyway.
     if isinstance(last_content, list):
         return [*preamble, *last_content]
-    return [*preamble, {"type": "text", "text": message_text(last)}]
+    tail = message_text(last)
+    return [*preamble, {"type": "text", "text": tail}] if tail.strip() else preamble
 
 
 # ── stop_reason / usage mapping ────────────────────────────────────────────—

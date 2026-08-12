@@ -173,6 +173,19 @@ def test_fold_without_history_images_stays_a_plain_string():
     assert isinstance(fold_conversation(convo), str)
 
 
+def test_fold_with_history_image_and_empty_live_turn_emits_no_empty_block():
+    """An empty final user message must not become an empty text block: the API
+    rejects those, and the string path appended nothing for it either."""
+    convo = [
+        ChatMessage(role="user", content=[{"type": "text", "text": "look"}, _img_part()]),
+        ChatMessage(role="assistant", content="ok"),
+        ChatMessage(role="user", content="   "),
+    ]
+    folded = fold_conversation(convo)
+    assert _image_blocks(folded), "image dropped"
+    assert all(b.get("text", "x").strip() for b in folded if b["type"] == "text")
+
+
 def test_fold_multiturn_transcript():
     convo = [
         ChatMessage(role="user", content="hi"),
