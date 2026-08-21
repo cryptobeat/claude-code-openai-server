@@ -47,11 +47,10 @@ model mode, warm pool) is the original's. This fork diverges in two directions:
 - **IDE noise ignored.** `.gitignore` now excludes `.idea/`, `.junie/`, and
   `*.iml`.
 
-**Upstream features not yet in this fork**
+**Upstream features now included**
 
-This fork is based on an earlier snapshot of the upstream project, so a few
-features that landed in `schmarta/claude-code-openai-server` afterward are not
-present here yet:
+This fork was based on an earlier snapshot of the upstream project (up to PR #7,
+the uv migration). Upstream `main` has since been merged in, bringing:
 
 - **Native image passthrough** — base64 `image_url` parts become native Claude
   image blocks (on the live turn and in folded history).
@@ -64,8 +63,8 @@ present here yet:
   depth for the MCP mount.
 - **Fail-loudly model resolution** — an unknown `model` id returns 400 instead
   of silently falling back to the default.
-
-If you need any of those, they can be cherry-picked from upstream.
+- **Alias-based default model** — `CCI_DEFAULT_MODEL` defaults to `opus` (an
+  alias the CLI resolves to the current model) instead of a dated concrete id.
 
 ## What it does
 
@@ -78,6 +77,9 @@ If you need any of those, they can be cherry-picked from upstream.
   conversation kept alive across continuations.
 - **Claude's own built-in tools** (Read/Edit/Bash/…) run internally the whole
   time (unless bare mode strips them — see below).
+- **Images:** base64 `image_url` parts become native Claude image blocks — on the
+  live turn and in folded history alike, so a picture stays visible for the
+  follow-up turns that ask about it.
 - **Bare model mode** (default on): presents Claude as a plain model fronted by
   your client — replaces the system prompt, drops Claude Code's dynamic context,
   and exposes only the tools your client sends.
@@ -223,6 +225,7 @@ CCI_TIMING_LOG=false
 | `CCI_SUSPENDED_TTL_S` | `300` | How long a tool-suspended conversation may wait for its results before GC. |
 | `CCI_IDLE_SESSION_TTL_S` | `900` | Idle conversation eviction age. |
 | `CCI_GC_INTERVAL_S` | `30` | GC sweep interval. |
+| `CCI_REBUILD_ON_EXPIRY` | `true` | Rebuild a fresh session from the request's history when tool results arrive for an already-reaped conversation, instead of answering 409. |
 | `CCI_WARM_POOL_SIZE` | `0` | Pre-spawned idle `claude` procs (cold-start removal). 0 = off. |
 | `CCI_LOG_LEVEL` | `INFO` | Log level. |
 | `CCI_TIMING_LOG` | `false` | Emit per-turn latency metrics to the `cci.timing` logger. |
@@ -290,11 +293,10 @@ systemctl --user restart cci-server.service
 `kill` works too, but `Restart=always` will respawn the process from the old
 environment unless you restart the unit.
 
-> **Note:** upstream also ships `CCI_REBUILD_ON_EXPIRY` (default on), which
-> rebuilds an expired continuation from the request's full history instead of
-> returning 409. That feature is not in this fork yet (see
-> [What's different from the original](#whats-different-from-the-original)), so
-> here the TTLs are the primary lever for avoiding 409s.
+> **Note:** `CCI_REBUILD_ON_EXPIRY` (default on) rebuilds an expired continuation
+> from the request's full history instead of returning 409, so with it enabled
+> the TTLs above are a secondary safety net rather than the primary lever. Set
+> `CCI_REBUILD_ON_EXPIRY=false` to restore the legacy 409 behaviour.
 
 ## Endpoints
 
@@ -449,3 +451,8 @@ OpenAI client ──HTTP /v1──▶ cci-server ──stream-json (stdin/stdout
   (carrying the tool results) resolves the pending futures and the same
   subprocess resumes. Matching is by `tool_call_id`.
 - A background GC reaps suspended-too-long and idle conversations.
+- **Expired continuation:** if the tool results come back after their
+  conversation was reaped (a slow tool, a long pause, a server restart), the
+  server rebuilds a fresh session from the history the request already carries
+  and answers the turn normally, rather than failing it with a 409 the client
+  cannot retry. `CCI_REBUILD_ON_EXPIRY=false` restores the 409.

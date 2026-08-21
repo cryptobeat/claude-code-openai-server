@@ -121,32 +121,29 @@ app = create_app()
 def run() -> None:
     """Console-script entrypoint (``claude-code-interface``).
 
-    Requests uvloop + httptools explicitly. uvicorn's default ``loop="auto"``
-    already picks uvloop when installed, but naming them makes the fast path
-    deterministic regardless of what is importable at boot. uvloop is only
-    installed on non-Windows (see the pyproject marker), so it is requested by
-    name only when importable — on win32 uvicorn falls back to its default
-    loop. NOTE: the systemd unit launches ``python -m uvicorn`` directly (not
-    this entrypoint), so to pin the fast loop in production either switch
-    ExecStart to the ``claude-code-interface`` script or add
-    ``--loop uvloop --http httptools``.
+    Prefers uvloop + httptools when available. uvloop is not installed on Windows
+    (it has no win32 wheel — see the ``sys_platform != 'win32'`` marker in
+    pyproject), so pinning ``loop="uvloop"`` unconditionally makes this entrypoint
+    crash on Windows. Detect it and fall back to uvicorn's ``loop="auto"``, which
+    still picks uvloop where present. NOTE: the systemd unit launches
+    ``python -m uvicorn`` directly (not this entrypoint), so to pin the fast loop
+    in production either switch ExecStart to the ``claude-code-interface`` script
+    or add ``--loop uvloop --http httptools``.
     """
+    import importlib.util
+
     import uvicorn
 
+    have_uvloop = importlib.util.find_spec("uvloop") is not None
+
     settings = get_settings()
-    loop_kwargs: dict[str, str] = {}
-    try:
-        import uvloop  # noqa: F401
-        loop_kwargs["loop"] = "uvloop"
-    except ImportError:
-        pass
     uvicorn.run(
         "app.main:app",
         host=settings.host,
         port=settings.port,
         log_level=settings.log_level.lower(),
+        loop="uvloop" if have_uvloop else "auto",
         http="httptools",
-        **loop_kwargs,
     )
 
 

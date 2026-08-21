@@ -71,6 +71,121 @@ def test_fold_rejects_invalid_data_image():
     assert fold_conversation(convo) == "what is this?"
 
 
+_PNG = "iVBORw0KGgo="
+
+
+def _img_part(data: str = _PNG, media: str = "image/png") -> dict:
+    return {"type": "image_url", "image_url": {"url": f"data:{media};base64,{data}"}}
+
+
+def _image_blocks(folded) -> list[dict]:
+    if not isinstance(folded, list):
+        return []
+    return [b for b in folded if isinstance(b, dict) and b.get("type") == "image"]
+
+
+def _folded_text(folded) -> str:
+    """All text of a fold, whether it came back as a string or as blocks."""
+    if isinstance(folded, str):
+        return folded
+    return "".join(b.get("text", "") for b in folded if b.get("type") == "text")
+
+
+def test_fold_keeps_an_image_from_an_earlier_turn():
+    """An image sent in an earlier turn must survive the refold.
+
+    Every fresh subprocess is fed the whole conversation, so an image that is
+    flattened to text on the way in leaves the model answering follow-up
+    questions about a picture it can no longer see — silently, and with a
+    confident guess.
+    """
+    convo = [
+        ChatMessage(role="user", content=[
+            {"type": "text", "text": "what is in this photo?"},
+            _img_part(),
+        ]),
+        ChatMessage(role="assistant", content="A red bicycle."),
+        ChatMessage(role="user", content="what colour was it?"),
+    ]
+    folded = fold_conversation(convo)
+
+    imgs = _image_blocks(folded)
+    assert imgs, "image from an earlier turn was dropped from the fold"
+    assert imgs[0]["source"]["data"] == _PNG
+    text = _folded_text(folded)
+    assert "User: what is in this photo?" in text
+    assert "Assistant: A red bicycle." in text
+    assert _LIVE_GUARD in text
+    assert text.rstrip().endswith("what colour was it?")
+
+
+def test_fold_keeps_history_images_in_transcript_order():
+    """Each image stays attached to the turn that sent it: its block follows
+    that turn's labelled line and precedes the next one."""
+    convo = [
+        ChatMessage(role="user", content=[{"type": "text", "text": "first"}, _img_part("iVBORw0KGgo=")]),
+        ChatMessage(role="assistant", content="ok"),
+        ChatMessage(role="user", content="last"),
+    ]
+    folded = fold_conversation(convo)
+    assert isinstance(folded, list)
+    kinds = [b.get("type") for b in folded]
+    assert "image" in kinds
+    i = kinds.index("image")
+    before = "".join(b.get("text", "") for b in folded[:i] if b.get("type") == "text")
+    after = "".join(b.get("text", "") for b in folded[i:] if b.get("type") == "text")
+    assert before.rstrip().endswith("User: first")
+    assert "Assistant: ok" in after
+
+
+def test_fold_keeps_an_image_when_the_tail_is_not_a_user_turn():
+    """The continuation shape (…user with an image → assistant tool_calls →
+    tool result) folds entirely into context. The image must ride along there
+    too, otherwise a rebuilt tool turn answers blind."""
+    convo = [
+        ChatMessage(role="user", content=[
+            {"type": "text", "text": "identify this"},
+            _img_part(),
+        ]),
+        ChatMessage(
+            role="assistant", content=None,
+            tool_calls=[ToolCall(id="c1", function=FunctionCall(name="lookup", arguments="{}"))],
+        ),
+        ChatMessage(role="tool", tool_call_id="c1", content="a red bicycle"),
+    ]
+    folded = fold_conversation(convo)
+
+    assert _image_blocks(folded), "image dropped when folding a non-user tail"
+    text = _folded_text(folded)
+    assert "User: identify this" in text
+    assert "Tool: a red bicycle" in text
+    assert text.rstrip().endswith(_CONTINUE_GUARD)
+
+
+def test_fold_without_history_images_stays_a_plain_string():
+    """Regression guard: the block form is only used when there is an image to
+    carry — an image-free conversation folds to exactly the same string as before."""
+    convo = [
+        ChatMessage(role="user", content="hi"),
+        ChatMessage(role="assistant", content="hello"),
+        ChatMessage(role="user", content="bye"),
+    ]
+    assert isinstance(fold_conversation(convo), str)
+
+
+def test_fold_with_history_image_and_empty_live_turn_emits_no_empty_block():
+    """An empty final user message must not become an empty text block: the API
+    rejects those, and the string path appended nothing for it either."""
+    convo = [
+        ChatMessage(role="user", content=[{"type": "text", "text": "look"}, _img_part()]),
+        ChatMessage(role="assistant", content="ok"),
+        ChatMessage(role="user", content="   "),
+    ]
+    folded = fold_conversation(convo)
+    assert _image_blocks(folded), "image dropped"
+    assert all(b.get("text", "x").strip() for b in folded if b["type"] == "text")
+
+
 def test_fold_multiturn_transcript():
     convo = [
         ChatMessage(role="user", content="hi"),
@@ -130,6 +245,36 @@ def test_fold_includes_assistant_tool_calls():
     ]
     folded = fold_conversation(convo)
     assert "called tools: get_weather" in folded
+
+
+def test_fold_renders_tool_result_as_prose_and_drops_tool_call_id():
+    """Characterize the KNOWN, ACCEPTED history-refold limitation for a full
+    tool round-trip folded into a fresh subprocess: an assistant tool call
+    becomes '[called tools: fn({...})]', the tool RESULT becomes a 'Tool: <text>'
+    line, and the tool_call_id correlating the two is dropped — structured
+    tool history is flattened to prose. Recorded as a regression characterization
+    (previously the 'Tool:' path had no coverage), not a change of behavior."""
+    convo = [
+        ChatMessage(role="user", content="weather in Paris?"),
+        ChatMessage(
+            role="assistant", content=None,
+            tool_calls=[ToolCall(id="call_abc123",
+                                 function=FunctionCall(name="get_weather",
+                                                       arguments='{"city":"Paris"}'))],
+        ),
+        ChatMessage(role="tool", tool_call_id="call_abc123",
+                    content='{"temp_c":21,"summary":"sunny"}'),
+        ChatMessage(role="user", content="and Berlin?"),
+    ]
+    folded = fold_conversation(convo)
+    # assistant tool call rendered as prose
+    assert '[called tools: get_weather({"city":"Paris"})]' in folded
+    # tool result rendered as a plain 'Tool:' line
+    assert 'Tool: {"temp_c":21,"summary":"sunny"}' in folded
+    # the tool_call_id correlation is NOT preserved anywhere in the fold
+    assert "call_abc123" not in folded
+    # the whole prior turn is re-sent alongside the new one (re-billed each turn)
+    assert "Paris" in folded and folded.rstrip().endswith("and Berlin?")
 
 
 def test_map_finish_reason():
