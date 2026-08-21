@@ -27,7 +27,7 @@ DELTA_REST = '{"type":"stream_event","event":{"type":"content_block_delta","inde
 RESULT_OK = '{"type":"result","subtype":"success","is_error":false,"result":"Hi there.","session_id":"abc-123"}'
 RESULT_ERR = '{"type":"result","subtype":"error_during_execution","is_error":true,"result":"boom","session_id":"abc-123"}'
 
-ASSISTANT_READ = '{"type":"assistant","message":{"model":"claude-opus-4-8","role":"assistant","content":[{"type":"tool_use","id":"toolu_01GeCxYcf9sXFDZSfQmpcgwk","name":"Read","input":{"file_path":"/Users/lucas/Projects/wisp/note.txt"}}]}}'
+ASSISTANT_READ = '{"type":"assistant","message":{"model":"claude-opus-4-8","role":"assistant","content":[{"type":"tool_use","id":"toolu_01GeCxYcf9sXFDZSfQmpcgwk","name":"Read","input":{"file_path":"/tmp/test-note.txt"}}]}}'
 ASSISTANT_BASH = '{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_017FcpUw3HcHZ3gxBhoyMCp5","name":"Bash","input":{"command":"find /tmp -iname \'note*.txt\'","description":"Find note.txt"}}]}}'
 STREAM_TOOL_START = '{"type":"stream_event","event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_x","name":"Read","input":{}}}}'
 ASSISTANT_THINKING = '{"type":"assistant","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm","signature":"x"}]}}'
@@ -85,7 +85,7 @@ def test_assistant_read_tool_use():
     assert len(ev.tool_uses) == 1
     b = ev.tool_uses[0]
     assert b.name == "Read"
-    assert b.input["file_path"] == "/Users/lucas/Projects/wisp/note.txt"
+    assert b.input["file_path"] == "/tmp/test-note.txt"
     assert not b.is_client
     assert ev.client_calls == []
     assert len(ev.builtin_calls) == 1

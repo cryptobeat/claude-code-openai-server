@@ -10,6 +10,63 @@ Open WebUI, etc. — at it and you get Claude Code, using your existing
 Under the hood it drives `claude` as a persistent subprocess over its
 `stream-json` protocol, one process per conversation.
 
+## Project idea
+
+The core idea is simple: **treat the `claude` CLI as a model backend.** The
+`claude` CLI already knows how to authenticate (via your existing `claude login`),
+reason, and run tools — but it only speaks its own `stream-json` protocol. This
+server wraps that protocol in the OpenAI `chat/completions` contract, so any
+client that already talks OpenAI (the Python SDK, Open WebUI, LM Studio-style
+frontends, etc.) can use Claude Code as if it were a local model — no API key,
+no per-token billing.
+
+Each conversation owns one long-lived `claude` subprocess. When the client sends
+a request, the server folds the conversation into the subprocess; when Claude
+calls one of the client's own tools, the server parks the conversation and hands
+the `tool_calls` back to the client, which runs the tool and sends the result
+back — the same subprocess then resumes. The whole multi-step tool loop is one
+persistent conversation.
+
+## What's different from the original
+
+This repository is a fork of
+[`schmarta/claude-code-openai-server`](https://github.com/schmarta/claude-code-openai-server)
+by **Lucas Marta** (`lucas.marta0799@gmail.com`). The core architecture (OpenAI
+surface, in-process MCP bridge, persistent per-conversation subprocess, bare
+model mode, warm pool) is the original's. This fork diverges in two directions:
+
+**Added in this fork**
+
+- **`.env` auto-loading.** `Settings` now reads a `.env` file directly
+  (`env_file=".env"` in [`app/config.py`](app/config.py)), and
+  [`app/main.py`](app/main.py) calls `load_dotenv(override=False)` at import so
+  that *non-`CCI_`* variables in `.env` (e.g. `CLAUDE_CODE_OAUTH_TOKEN`) are
+  exported into the environment and inherited by the spawned `claude`
+  subprocess. Real environment variables always win (`override=False`). This is
+  what makes the systemd `EnvironmentFile=.env` setup work end-to-end.
+- **IDE noise ignored.** `.gitignore` now excludes `.idea/`, `.junie/`, and
+  `*.iml`.
+
+**Upstream features not yet in this fork**
+
+This fork is based on an earlier snapshot of the upstream project, so a few
+features that landed in `schmarta/claude-code-openai-server` afterward are not
+present here yet:
+
+- **Native image passthrough** — base64 `image_url` parts become native Claude
+  image blocks (on the live turn and in folded history).
+- **Cross-turn session reuse** (`CCI_CROSS_TURN_REUSE`) — a completed
+  conversation is parked and re-adopted by a matching later turn, cutting
+  per-turn history re-billing.
+- **Rebuild-on-expiry** (`CCI_REBUILD_ON_EXPIRY`) — an expired tool continuation
+  is rebuilt from the request's full history instead of returning HTTP 409.
+- **Unguessable conversation ids + `/mcp` loopback-peer gate** — defense in
+  depth for the MCP mount.
+- **Fail-loudly model resolution** — an unknown `model` id returns 400 instead
+  of silently falling back to the default.
+
+If you need any of those, they can be cherry-picked from upstream.
+
 ## What it does
 
 - **OpenAI surface:** `GET /v1/models` and `POST /v1/chat/completions`
@@ -48,9 +105,19 @@ and runs inside that venv.
 
 ## Run
 
+**Quick start**
+
 ```bash
+git clone <this-repo> && cd claude-code-openai-server
+uv sync                                   # install runtime deps into ./.venv
+cp .env.example .env                      # then edit .env (TTLs, model, workdir…)
 uv run uvicorn app.main:app --host 127.0.0.1 --port 8787
 ```
+
+The server binds `127.0.0.1:8787` by default and is ready immediately — no
+database, no migration. A `.env` file in the working directory is loaded
+automatically (see Configuration), so the command above picks up your config
+with no extra flags.
 
 Or via the installed console script, which pins the fast event loop
 (uvloop + httptools) explicitly:
@@ -60,7 +127,7 @@ uv run claude-code-interface
 ```
 
 Configuration is entirely through `CCI_*` environment variables (or a `.env`
-file). See the full list below.
+file, which is auto-loaded). See the full list below.
 
 ## Configuration
 
@@ -106,7 +173,7 @@ CCI_FLATTEN_MARKDOWN_TABLES=true
 # Per-request `workdir` overrides must resolve under one of
 # CCI_ALLOWED_WORKDIR_ROOTS (a JSON list); empty => only the default is allowed.
 CCI_DEFAULT_WORKDIR=~/cci-workspace
-# CCI_ALLOWED_WORKDIR_ROOTS=["/home/lucas/Projects"]
+# CCI_ALLOWED_WORKDIR_ROOTS=["/home/user/Projects"]
 
 # ── MCP bridge ───────────────────────────────────────────────────────────────
 # Path the in-process MCP server (your client's functions) mounts at; the spawned
@@ -182,6 +249,52 @@ your user.** Two interlocks guard this:
 **Recommended:** keep the bind on `127.0.0.1`. If you must expose it (containers,
 remote clients), set a long random `CCI_API_KEY` and put it behind TLS. Binding
 `0.0.0.0` / a public interface with no key will refuse to boot — by design.
+
+## Troubleshooting: 409 errors & TTLs
+
+If a client gets **HTTP 409** (`code: tool_result_expired`) in the middle of a
+tool loop, the conversation was garbage-collected while a tool call was still in
+flight. This happens when a single blocking tool call (a subagent run, a long
+kanban/automation step, browser automation, etc.) takes longer than the
+suspended-conversation TTL, so the server reaps the parked conversation before
+the client returns the tool result.
+
+Two lifecycle knobs control this (both in seconds, both overridable via `.env` —
+no code change needed):
+
+| Var | Default | Meaning |
+|-----|---------|---------|
+| `CCI_SUSPENDED_TTL_S` | `300` | How long a tool-suspended conversation may wait for its results before GC reaps it. **This is the one that causes 409s when too low.** |
+| `CCI_IDLE_SESSION_TTL_S` | `900` | How long an idle (non-suspended) conversation is kept alive before eviction. |
+
+**Recommended fix:** bump both to `3600` (1 hour). That comfortably covers even
+the longest single blocking tool call (e.g. browser automation's 30-minute max),
+so a slow in-flight tool no longer outlives its conversation:
+
+```bash
+# in .env
+CCI_SUSPENDED_TTL_S=3600
+CCI_IDLE_SESSION_TTL_S=3600
+```
+
+Then **restart the service** to pick up the new values. If you run under a
+systemd user unit (see [Deploying as a service](#deploying-as-a-service-systemd-user-unit)),
+the unit reads config from `.env` via `EnvironmentFile` and has `Restart=always`,
+so restart it cleanly rather than killing the process:
+
+```bash
+systemctl --user restart cci-server.service
+```
+
+(Use your actual unit name if it differs from `cci-server.service`.) A plain
+`kill` works too, but `Restart=always` will respawn the process from the old
+environment unless you restart the unit.
+
+> **Note:** upstream also ships `CCI_REBUILD_ON_EXPIRY` (default on), which
+> rebuilds an expired continuation from the request's full history instead of
+> returning 409. That feature is not in this fork yet (see
+> [What's different from the original](#whats-different-from-the-original)), so
+> here the TTLs are the primary lever for avoiding 409s.
 
 ## Endpoints
 

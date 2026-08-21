@@ -8,3 +8,6 @@ build/
 dist/
 .DS_Store
 uv.lock
+.idea/
+.junie/
+*.iml
