@@ -152,7 +152,10 @@ CCI_PORT=8787
 
 # ── Claude CLI ───────────────────────────────────────────────────────────────
 CCI_CLAUDE_BIN=claude
-CCI_DEFAULT_MODEL=claude-opus-4-8
+# An alias (opus/sonnet/haiku/fable/…) is preferred over a dated concrete id: the
+# CLI resolves it to the current model, so it never goes stale. An unrecognized,
+# non-`claude*` model on a request is now a 400 (no silent downgrade).
+CCI_DEFAULT_MODEL=opus
 # CCI_DEFAULT_EFFORT=high
 CCI_PERMISSION_MODE=bypassPermissions
 CCI_ENABLE_TOOL_SEARCH=false
@@ -211,7 +214,7 @@ CCI_TIMING_LOG=false
 | `CCI_PORT` | `8787` | Bind port. Also used to build the per-conversation MCP callback URL. |
 | `CCI_API_KEY` | _(unset)_ | Bearer token required on every `/v1` request when set. Mandatory for a non-loopback bind. |
 | `CCI_CLAUDE_BIN` | `claude` | Path to the `claude` CLI. |
-| `CCI_DEFAULT_MODEL` | `claude-opus-4-8` | Model used when the request names none / an unknown one. |
+| `CCI_DEFAULT_MODEL` | `opus` | Model used when the request names none. An unrecognized, non-`claude*` model on a request is a 400 (no silent downgrade). |
 | `CCI_DEFAULT_EFFORT` | _(unset)_ | Reasoning effort passed to `--effort` (e.g. `high`). |
 | `CCI_PERMISSION_MODE` | `bypassPermissions` | Claude CLI permission mode. |
 | `CCI_ENABLE_TOOL_SEARCH` | `false` | When false, tool schemas are injected directly (always visible) instead of behind tool-search. |
@@ -221,6 +224,7 @@ CCI_TIMING_LOG=false
 | `CCI_DEFAULT_WORKDIR` | `~/cci-workspace` | Working dir granted to Claude via `--add-dir`. |
 | `CCI_ALLOWED_WORKDIR_ROOTS` | `[]` | JSON list of extra roots a per-request `workdir` may resolve under. |
 | `CCI_MCP_PATH_PREFIX` | `/mcp` | Mount path for the in-process MCP bridge. |
+| `CCI_CROSS_TURN_REUSE` | `false` | Park a completed conversation and re-adopt it by a matching later turn (sends only the new message, cutting per-turn history re-billing). |
 | `CCI_REQUEST_TIMEOUT_S` | `600` | Per-turn upstream timeout. |
 | `CCI_SUSPENDED_TTL_S` | `300` | How long a tool-suspended conversation may wait for its results before GC. |
 | `CCI_IDLE_SESSION_TTL_S` | `900` | Idle conversation eviction age. |
